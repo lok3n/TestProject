@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: images_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  rabbit:
+    image: rabbitmq:3.12-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      network: host
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/images_db
+      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/
+      STORAGE_PATH: /app/storage
+    volumes:
+      - ./storage:/app/storage
+      - ./src:/app/src
+    depends_on:
+      - db
+      - rabbit
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      network: host
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/images_db
+      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/
+      STORAGE_PATH: /app/storage
+    volumes:
+      - ./storage:/app/storage
+      - ./src:/app/src
+    depends_on:
+      - db
+      - rabbit
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
